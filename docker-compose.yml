@@ -1,0 +1,16 @@
+services:
+  stratify-ai:
+    build: .
+    container_name: stratify-research-agent
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src:/app/src
+      - ./app:/app/app
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    command: python src/entrypoint.py
