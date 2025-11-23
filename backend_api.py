@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response, stream_with_context
 from flask_cors import CORS
 from src.graph import AgentState, create_research_graph
 from io import BytesIO
@@ -9,6 +9,8 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 from reportlab.lib import colors
 import re
+import json
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -20,57 +22,105 @@ active_sessions = {}
 def research_company():
     try:
         data = request.json
-        company_name = data.get('company_name')
+        user_input = data.get('company_name')
         
-        if not company_name:
+        if not user_input:
             return jsonify({'error': 'Company name is required'}), 400
         
-        # Initialize state
-        initial_state = {
-            "messages": [],
-            "company_name": company_name,
-            "research_data": [],
-            "conflicting_info": False,
-            "clarification_question": "",
-            "conflicting_data": "",
-            "final_report": "",
-            "human_resolution": ""
-        }
+        # Extract actual company name from natural language input using LLM
+        from src.graph import get_llm
+        from langchain_core.messages import SystemMessage, HumanMessage
         
-        # Create graph and run
-        graph = create_research_graph()
-        thread_id = f"session_{company_name}_{id(graph)}"
-        config = {"configurable": {"thread_id": thread_id}}
+        print(f"📥 User input: {user_input}")
         
-        # Store in active sessions
-        active_sessions[company_name] = {
-            "graph": graph,
-            "thread_id": thread_id,
-            "config": config
-        }
+        extraction_prompt = SystemMessage(content="""You are a company name extractor. 
+Extract ONLY the company name from the user's input. Return just the company name, nothing else.
+
+Examples:
+- "I want to research about a company called AstraZeneca" -> "AstraZeneca"
+- "Can you analyze Tesla for me?" -> "Tesla"
+- "Research Microsoft" -> "Microsoft"
+- "Tell me about Apple Inc" -> "Apple"
+- "accenture" -> "Accenture"
+
+Return ONLY the company name.""")
         
-        # Run the graph - it will interrupt at human_review if conflict detected
-        result_state = None
-        for state in graph.stream(initial_state, config, stream_mode="values"):
-            result_state = state
+        llm = get_llm()
+        response = llm.invoke([extraction_prompt, HumanMessage(content=user_input)])
+        company_name = response.content.strip()
         
-        # Check if we hit an interrupt (conflict detected)
-        if result_state.get("conflicting_info"):
-            return jsonify({
-                'has_conflict': True,
-                'conflict_question': result_state.get('clarification_question', ''),
-                'conflicting_data': result_state.get('conflicting_data', ''),
-                'session_id': company_name,
-                'message': 'Conflict detected - human review required'
-            })
+        print(f"✅ Extracted company name: {company_name}")
         
-        # No conflict - return the report
-        report = result_state.get('final_report', '')
-        return jsonify({
-            'has_conflict': False,
-            'report': report,
-            'message': 'Research completed successfully'
-        })
+        def generate():
+            """Generator function for streaming progress updates"""
+            try:
+                # Send initial status
+                yield f"data: {json.dumps({'type': 'progress', 'message': f'🔍 Starting research for {company_name}...'})}\n\n"
+                time.sleep(0.5)
+                
+                # Initialize state
+                initial_state = {
+                    "messages": [],
+                    "company_name": company_name,
+                    "research_data": [],
+                    "conflicting_info": False,
+                    "clarification_question": "",
+                    "conflicting_data": "",
+                    "final_report": "",
+                    "human_resolution": ""
+                }
+                
+                # Create graph and run
+                graph = create_research_graph()
+                thread_id = f"session_{company_name}_{id(graph)}"
+                config = {"configurable": {"thread_id": thread_id}}
+                
+                # Store in active sessions
+                active_sessions[company_name] = {
+                    "graph": graph,
+                    "thread_id": thread_id,
+                    "config": config
+                }
+                
+                yield f"data: {json.dumps({'type': 'progress', 'message': '📊 Gathering company data from multiple sources...'})}\n\n"
+                time.sleep(0.5)
+                
+                # Run the graph with progress tracking
+                result_state = None
+                last_node = None
+                
+                for state in graph.stream(initial_state, config, stream_mode="values"):
+                    result_state = state
+                    
+                    # Detect which node we're in based on state changes
+                    if state.get('research_data') and not last_node:
+                        last_node = 'researcher'
+                        yield f"data: {json.dumps({'type': 'progress', 'message': '✅ Research data collected - analyzing for conflicts...'})}\n\n"
+                        time.sleep(0.5)
+                    elif state.get('conflicting_info') and last_node == 'researcher':
+                        last_node = 'reviewer'
+                        yield f"data: {json.dumps({'type': 'progress', 'message': '⚠️ Conflict detected - pausing for review...'})}\n\n"
+                        time.sleep(0.5)
+                    elif state.get('final_report') and not state.get('conflicting_info'):
+                        last_node = 'writer'
+                        yield f"data: {json.dumps({'type': 'progress', 'message': '📝 Generating comprehensive account plan...'})}\n\n"
+                        time.sleep(0.5)
+                
+                # Check if we hit an interrupt (conflict detected)
+                if result_state.get("conflicting_info"):
+                    yield f"data: {json.dumps({'type': 'conflict', 'conflict_question': result_state.get('clarification_question', ''), 'conflicting_data': result_state.get('conflicting_data', ''), 'session_id': company_name})}\n\n"
+                else:
+                    # No conflict - return the report
+                    report = result_state.get('final_report', '')
+                    yield f"data: {json.dumps({'type': 'complete', 'report': report})}\n\n"
+                
+            except Exception as e:
+                import traceback
+                print("Error in generate():")
+                print(traceback.format_exc())
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
         
     except Exception as e:
         import traceback
@@ -349,8 +399,22 @@ def download_pdf():
                 if i < len(lines) and not lines[i].strip().startswith('|'):
                     # End of table - render it
                     if table_data:
-                        # Create table with wider columns for content
-                        table = Table(table_data, colWidths=[1.5*inch, 4.5*inch])
+                        # Convert table cells to Paragraph objects for better text wrapping
+                        wrapped_table_data = []
+                        for row_idx, row in enumerate(table_data):
+                            wrapped_row = []
+                            for col_idx, cell in enumerate(row):
+                                if row_idx == 0:
+                                    # Header row - keep as plain text
+                                    wrapped_row.append(cell)
+                                else:
+                                    # Body rows - wrap in Paragraph for automatic line breaking
+                                    para = Paragraph(cell, bullet_style)
+                                    wrapped_row.append(para)
+                            wrapped_table_data.append(wrapped_row)
+                        
+                        # Create table with appropriate column widths (total width = 6.5")
+                        table = Table(wrapped_table_data, colWidths=[1.3*inch, 5.2*inch])
                         table.setStyle(TableStyle([
                             # Header row styling
                             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#ff4444')),
@@ -368,10 +432,10 @@ def download_pdf():
                             ('FONTSIZE', (0, 1), (-1, -1), 9),
                             ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
                             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                            ('LEFTPADDING', (0, 0), (-1, -1), 10),
-                            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-                            ('TOPPADDING', (0, 1), (-1, -1), 10),
-                            ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
+                            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+                            ('TOPPADDING', (0, 1), (-1, -1), 8),
+                            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
                             
                             # Grid
                             ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
@@ -379,9 +443,6 @@ def download_pdf():
                             
                             # Alternating row colors
                             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
-                            
-                            # Word wrap for content
-                            ('WORDWRAP', (0, 0), (-1, -1), True),
                         ]))
                         elements.append(table)
                         elements.append(Spacer(1, 0.2 * inch))
@@ -443,6 +504,80 @@ def download_pdf():
     except Exception as e:
         import traceback
         print("Error generating PDF:")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/edit-section', methods=['POST'])
+def edit_section():
+    try:
+        data = request.json
+        company_name = data.get('company_name', 'report')
+        edit_instructions = data.get('edit_instructions')
+        full_report = data.get('full_report')
+        
+        print(f"📝 Report edit request:")
+        print(f"  Company: {company_name}")
+        print(f"  Instructions: {edit_instructions}")
+        
+        if not edit_instructions or not full_report:
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Use Gemini to update the report based on instructions
+        from src.graph import get_llm
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        system_prompt = """You are an expert Sales Strategist updating an account plan based on user feedback.
+
+Your task:
+1. Read the current account plan carefully
+2. Apply the user's editing instructions to improve the report
+3. Return the COMPLETE updated report in markdown format
+4. Maintain the same structure and section headers
+5. Keep the professional style and formatting
+6. Only modify the parts requested by the user, keep everything else intact
+
+IMPORTANT: Return the FULL report with all sections, not just the changed parts."""
+
+        user_prompt = f"""Current Account Plan:
+
+{full_report}
+
+---
+
+User's editing instructions:
+{edit_instructions}
+
+Please update the account plan following these instructions and return the complete updated report."""
+
+        print(f"  → Sending to Gemini for report update...")
+        
+        llm = get_llm()
+        llm_messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+        
+        response = llm.invoke(llm_messages)
+        updated_report = response.content.strip()
+        
+        # Clean up markdown code blocks if present
+        if "```markdown" in updated_report:
+            updated_report = updated_report.split("```markdown")[1].split("```")[0].strip()
+        elif "```" in updated_report:
+            updated_report = updated_report.replace("```", "").strip()
+        
+        print(f"  ✓ Report updated ({len(updated_report)} characters)")
+        print(f"✅ Report regenerated successfully with AI")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Report updated based on your instructions',
+            'updated_report': updated_report
+        })
+        
+    except Exception as e:
+        import traceback
+        print("Error in edit_section:")
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 

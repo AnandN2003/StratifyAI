@@ -7,6 +7,12 @@ function Chat() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentChatId, setCurrentChatId] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
+  const [clarificationInput, setClarificationInput] = useState('');
+  const [showClarificationFor, setShowClarificationFor] = useState(null);
+  const [editingSection, setEditingSection] = useState(null);
+  const [editInstructions, setEditInstructions] = useState('');
+  const [currentEditingReport, setCurrentEditingReport] = useState(null);
+  const [currentEditingCompany, setCurrentEditingCompany] = useState(null);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -31,7 +37,20 @@ function Chat() {
     setInput('');
     setIsLoading(true);
 
+    // Add a progress message
+    const progressMessage = {
+      role: 'assistant',
+      content: '🔍 Starting research...',
+      timestamp: new Date().toISOString(),
+      isProgress: true,
+    };
+    setMessages((prev) => [...prev, progressMessage]);
+
     try {
+      // Use EventSource for Server-Sent Events
+      const eventSource = new EventSource(`http://localhost:5000/api/research?company_name=${encodeURIComponent(companyName)}`);
+      
+      // For POST, we need to use fetch with streaming
       const response = await fetch('http://localhost:5000/api/research', {
         method: 'POST',
         headers: {
@@ -40,26 +59,70 @@ function Chat() {
         body: JSON.stringify({ company_name: companyName }),
       });
 
-      const data = await response.json();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-      if (data.has_conflict) {
-        // Show conflict question with resolution buttons
-        const conflictMessage = {
-          role: 'assistant',
-          content: `⚠️ **Conflict Detected**\n\n${data.conflict_question}`,
-          timestamp: new Date().toISOString(),
-          hasConflict: true,
-          sessionId: data.session_id,
-        };
-        setMessages((prev) => [...prev, conflictMessage]);
-      } else {
-        // Show final report
-        const assistantMessage = {
-          role: 'assistant',
-          content: data.report,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.substring(6));
+
+            if (data.type === 'progress') {
+              // Update progress message
+              setMessages((prev) => {
+                const updated = [...prev];
+                const progressIndex = updated.findIndex(m => m.isProgress);
+                if (progressIndex !== -1) {
+                  updated[progressIndex] = {
+                    ...updated[progressIndex],
+                    content: data.message,
+                  };
+                }
+                return updated;
+              });
+            } else if (data.type === 'conflict') {
+              // Remove progress message
+              setMessages((prev) => prev.filter(m => !m.isProgress));
+
+              // Show conflict question with resolution buttons
+              const conflictMessage = {
+                role: 'assistant',
+                content: `⚠️ **Conflict Detected**\n\n${data.conflict_question}`,
+                timestamp: new Date().toISOString(),
+                hasConflict: true,
+                sessionId: data.session_id,
+              };
+              setMessages((prev) => [...prev, conflictMessage]);
+            } else if (data.type === 'complete') {
+              // Remove progress message
+              setMessages((prev) => prev.filter(m => !m.isProgress));
+
+              // Show final report
+              const assistantMessage = {
+                role: 'assistant',
+                content: data.report,
+                timestamp: new Date().toISOString(),
+              };
+              setMessages((prev) => [...prev, assistantMessage]);
+            } else if (data.type === 'error') {
+              // Remove progress message
+              setMessages((prev) => prev.filter(m => !m.isProgress));
+
+              const errorMessage = {
+                role: 'assistant',
+                content: `Error: ${data.message}`,
+                timestamp: new Date().toISOString(),
+              };
+              setMessages((prev) => [...prev, errorMessage]);
+            }
+          }
+        }
       }
 
       // Save to chat history
@@ -76,6 +139,9 @@ function Chat() {
         ]);
       }
     } catch (error) {
+      // Remove progress message
+      setMessages((prev) => prev.filter(m => !m.isProgress));
+
       const errorMessage = {
         role: 'assistant',
         content: `Error: ${error.message}. Please make sure the backend is running.`,
@@ -106,9 +172,9 @@ function Chat() {
     // Add user's decision as a message
     let decisionText = '';
     if (resolution === 'proceed') {
-      decisionText = 'Proceeding with the research anyway...';
+      decisionText = 'Digging deeper to resolve the conflict...';
     } else if (resolution === 'stop') {
-      decisionText = 'Stopping for manual review.';
+      decisionText = 'Continuing with available information...';
     } else if (resolution === 'clarify') {
       decisionText = `Adding clarification: "${clarificationNote}"`;
     }
@@ -214,6 +280,82 @@ function Chat() {
     setInput('');
   };
 
+  const handleOpenEditModal = (messageIndex, content, companyName) => {
+    setCurrentEditingReport({ index: messageIndex, content });
+    setCurrentEditingCompany(companyName);
+    setEditInstructions('');
+  };
+
+  const handleSaveSection = async () => {
+    if (!editInstructions.trim() || !currentEditingReport) return;
+
+    setIsLoading(true);
+
+    try {
+      const { index, content } = currentEditingReport;
+      
+      // Add user instruction message
+      const instructionMessage = {
+        role: 'user',
+        content: `Edit report: ${editInstructions}`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, instructionMessage]);
+      
+      // Add progress message
+      const progressMessage = {
+        role: 'assistant',
+        content: `🔄 Updating the report based on your instructions...`,
+        timestamp: new Date().toISOString(),
+        isProgress: true,
+      };
+      setMessages((prev) => [...prev, progressMessage]);
+
+      const response = await fetch('http://localhost:5000/api/edit-section', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company_name: currentEditingCompany || 'report',
+          edit_instructions: editInstructions,
+          full_report: content,
+        }),
+      });
+
+      const data = await response.json();
+
+      // Remove progress message
+      setMessages((prev) => prev.filter(m => !m.isProgress));
+
+      // Add the updated report as a new message
+      const updatedReportMessage = {
+        role: 'assistant',
+        content: data.updated_report,
+        timestamp: new Date().toISOString(),
+        companyName: currentEditingCompany,
+      };
+      setMessages((prev) => [...prev, updatedReportMessage]);
+
+      // Close modal
+      setCurrentEditingReport(null);
+      setCurrentEditingCompany(null);
+      setEditInstructions('');
+    } catch (error) {
+      // Remove progress message
+      setMessages((prev) => prev.filter(m => !m.isProgress));
+      
+      const errorMessage = {
+        role: 'assistant',
+        content: `❌ Failed to update report: ${error.message}`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="chat-container">
       {/* Sidebar */}
@@ -295,33 +437,21 @@ function Chat() {
                   </div>
                   {message.role === 'assistant' && message.hasConflict && message.sessionId && (
                     <div className="conflict-actions">
-                      <p className="conflict-prompt">How would you like to proceed?</p>
+                      <p className="conflict-prompt">Want to dig deeper into this?</p>
                       <div className="conflict-buttons">
                         <button
                           className="conflict-btn proceed"
                           onClick={() => handleConflictResolution(index, message.sessionId, 'proceed')}
                           disabled={isLoading}
                         >
-                          ✓ Proceed Anyway
+                          ✓ Yes, Dig Deeper
                         </button>
                         <button
                           className="conflict-btn stop"
-                          onClick={() => handleConflictResolution(index, message.sessionId, 'stop')}
+                          onClick={() => handleConflictResolution(index, message.sessionId, 'proceed')}
                           disabled={isLoading}
                         >
-                          ✋ Stop for Review
-                        </button>
-                        <button
-                          className="conflict-btn clarify"
-                          onClick={() => {
-                            const note = prompt('Enter your clarification note:');
-                            if (note) {
-                              handleConflictResolution(index, message.sessionId, 'clarify', note);
-                            }
-                          }}
-                          disabled={isLoading}
-                        >
-                          📝 Add Clarification
+                          → No, Continue Anyway
                         </button>
                       </div>
                     </div>
@@ -339,6 +469,12 @@ function Chat() {
                         onClick={() => handleDownload(message.content, message.companyName, 'md')}
                       >
                         Download MD
+                      </button>
+                      <button 
+                        className="action-btn edit-btn"
+                        onClick={() => handleOpenEditModal(index, message.content, message.companyName)}
+                      >
+                        ✏️ Edit Report
                       </button>
                     </div>
                   )}
@@ -398,6 +534,62 @@ function Chat() {
           </form>
         </div>
       </main>
+
+      {/* Section Edit Modal */}
+      {currentEditingReport && (
+        <div className="modal-overlay" onClick={() => {
+          setCurrentEditingReport(null);
+          setCurrentEditingCompany(null);
+          setEditInstructions('');
+        }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Edit Report</h2>
+              <button
+                className="modal-close-btn"
+                onClick={() => {
+                  setCurrentEditingReport(null);
+                  setCurrentEditingCompany(null);
+                  setEditInstructions('');
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="edit-instruction-label">
+                Tell me what changes you'd like to make to the report:
+              </p>
+              <textarea
+                value={editInstructions}
+                onChange={(e) => setEditInstructions(e.target.value)}
+                className="section-edit-textarea"
+                placeholder="Examples:&#10;- Focus more on the Executive Summary section&#10;- Add more details about their cloud services in Key Insights&#10;- Expand the SWOT analysis with specific examples&#10;- Include information about their recent acquisitions&#10;- Make the Conversation Starters more technical"
+                rows="8"
+              />
+            </div>
+            <div className="modal-footer">
+              <button
+                className="modal-cancel-btn"
+                onClick={() => {
+                  setCurrentEditingReport(null);
+                  setCurrentEditingCompany(null);
+                  setEditInstructions('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-save-btn"
+                onClick={handleSaveSection}
+                disabled={isLoading || !editInstructions.trim()}
+              >
+                {isLoading ? 'Updating Report...' : 'Update Report'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

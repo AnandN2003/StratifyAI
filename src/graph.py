@@ -17,10 +17,12 @@ REVIEWER_SYSTEM_PROMPT = """You are a skeptical data auditor. Your only task is 
 
 Analyze the research data carefully and determine if there are any contradictions or conflicts.
 
+When you detect a conflict, describe what conflicting information you found (e.g., "I found conflicting information about the company's revenue: Source A states $10B while Source B states $8B"). Do NOT ask the user to clarify - they are sales people who won't know the answer. Instead, just state what conflict you found.
+
 Respond ONLY with a valid JSON object in this exact format:
 {
     "conflict_detected": true or false,
-    "clarification_question": "Your question here if conflict detected, otherwise empty string"
+    "clarification_question": "Description of the conflicting information found, if any. Otherwise empty string."
 }
 
 Do not include any other text, explanations, or markdown formatting. Only output the JSON object."""
