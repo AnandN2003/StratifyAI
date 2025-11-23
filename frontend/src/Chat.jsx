@@ -38,13 +38,19 @@ function Chat() {
 
       recognitionRef.current.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
-        if (isListeningModal) {
-          setEditInstructions(prev => prev + (prev ? ' ' : '') + transcript);
-        } else {
-          setInput(prev => prev + (prev ? ' ' : '') + transcript);
-        }
-        setIsListening(false);
-        setIsListeningModal(false);
+        // Check the current state to determine where to put the text
+        setIsListeningModal(current => {
+          if (current) {
+            setEditInstructions(prev => prev + (prev ? ' ' : '') + transcript);
+          }
+          return false;
+        });
+        setIsListening(current => {
+          if (current) {
+            setInput(prev => prev + (prev ? ' ' : '') + transcript);
+          }
+          return false;
+        });
       };
 
       recognitionRef.current.onerror = (event) => {
