@@ -13,6 +13,10 @@ function Chat() {
   const [editInstructions, setEditInstructions] = useState('');
   const [currentEditingReport, setCurrentEditingReport] = useState(null);
   const [currentEditingCompany, setCurrentEditingCompany] = useState(null);
+  const [isListening, setIsListening] = useState(false);
+  const [isListeningModal, setIsListeningModal] = useState(false);
+  const [speakingMessageIndex, setSpeakingMessageIndex] = useState(null);
+  const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -22,6 +26,46 @@ function Chat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    // Initialize Speech Recognition
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        if (isListeningModal) {
+          setEditInstructions(prev => prev + (prev ? ' ' : '') + transcript);
+        } else {
+          setInput(prev => prev + (prev ? ' ' : '') + transcript);
+        }
+        setIsListening(false);
+        setIsListeningModal(false);
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        setIsListeningModal(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+        setIsListeningModal(false);
+      };
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      window.speechSynthesis.cancel();
+    };
+  }, [isListeningModal]);
 
   const handleSubmit = async (companyName) => {
     if (!companyName.trim() || isLoading) return;
@@ -280,6 +324,95 @@ function Chat() {
     setInput('');
   };
 
+  const startListening = (forModal = false) => {
+    if (!recognitionRef.current) {
+      alert('Speech recognition is not supported in your browser. Please use Chrome or Edge.');
+      return;
+    }
+
+    if (forModal) {
+      setIsListeningModal(true);
+    } else {
+      setIsListening(true);
+    }
+
+    try {
+      recognitionRef.current.start();
+    } catch (error) {
+      console.error('Error starting recognition:', error);
+      setIsListening(false);
+      setIsListeningModal(false);
+    }
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setIsListening(false);
+    setIsListeningModal(false);
+  };
+
+  const speakText = (text, messageIndex) => {
+    // Stop any ongoing speech
+    window.speechSynthesis.cancel();
+
+    if (speakingMessageIndex === messageIndex) {
+      // If already speaking this message, stop it
+      setSpeakingMessageIndex(null);
+      return;
+    }
+
+    // Clean the text for speech (remove markdown, emojis, URLs)
+    let cleanText = text
+      .replace(/#{1,6}\s/g, '') // Remove markdown headers
+      .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
+      .replace(/\*(.+?)\*/g, '$1') // Remove italic
+      .replace(/\[(.+?)\]\(.+?\)/g, '$1') // Remove markdown links
+      .replace(/https?:\/\/[^\s]+/g, '') // Remove URLs
+      .replace(/[⚠️✅🔍📊✓→📝🔄❌]/g, '') // Remove common emojis
+      .replace(/\|/g, ' ') // Remove table pipes
+      .replace(/\n{2,}/g, '. ') // Replace multiple newlines with period
+      .replace(/\n/g, ' ') // Replace single newlines with space
+      .trim();
+
+    if (!cleanText) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.0; // Normal speed
+    utterance.pitch = 1.0; // Normal pitch
+    utterance.volume = 1.0; // Full volume
+
+    // Try to use a high-quality voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(voice => 
+      voice.lang.startsWith('en') && (voice.name.includes('Google') || voice.name.includes('Microsoft'))
+    ) || voices.find(voice => voice.lang.startsWith('en'));
+    
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
+
+    utterance.onstart = () => {
+      setSpeakingMessageIndex(messageIndex);
+    };
+
+    utterance.onend = () => {
+      setSpeakingMessageIndex(null);
+    };
+
+    utterance.onerror = () => {
+      setSpeakingMessageIndex(null);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeaking = () => {
+    window.speechSynthesis.cancel();
+    setSpeakingMessageIndex(null);
+  };
+
   const handleOpenEditModal = (messageIndex, content, companyName) => {
     setCurrentEditingReport({ index: messageIndex, content });
     setCurrentEditingCompany(companyName);
@@ -454,10 +587,61 @@ function Chat() {
                           → No, Continue Anyway
                         </button>
                       </div>
+                      {/* Read Aloud button for conflict message */}
+                      <div className="message-actions" style={{ marginTop: '1rem' }}>
+                        <button 
+                          className={`action-btn speaker-btn ${speakingMessageIndex === index ? 'speaking' : ''}`}
+                          onClick={() => speakText(message.content, index)}
+                          title={speakingMessageIndex === index ? 'Stop reading' : 'Read aloud'}
+                        >
+                          {speakingMessageIndex === index ? (
+                            <>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                <rect x="6" y="4" width="4" height="16" fill="currentColor"/>
+                                <rect x="14" y="4" width="4" height="16" fill="currentColor"/>
+                              </svg>
+                              Stop Reading
+                            </>
+                          ) : (
+                            <>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                <path d="M3 9V15H7L12 20V4L7 9H3Z" fill="currentColor"/>
+                                <path d="M16.5 12C16.5 10.23 15.48 8.71 14 7.97V16.02C15.48 15.29 16.5 13.77 16.5 12Z" fill="currentColor"/>
+                                <path d="M14 3.23V5.29C16.89 6.15 19 8.83 19 12C19 15.17 16.89 17.85 14 18.71V20.77C18.01 19.86 21 16.28 21 12C21 7.72 18.01 4.14 14 3.23Z" fill="currentColor"/>
+                              </svg>
+                              Read Aloud
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
-                  {message.role === 'assistant' && !message.hasConflict && message.content.length > 100 && (
+                  {message.role === 'assistant' && !message.hasConflict && !message.isProgress && message.content.length > 100 && (
                     <div className="message-actions">
+                      <button 
+                        className={`action-btn speaker-btn ${speakingMessageIndex === index ? 'speaking' : ''}`}
+                        onClick={() => speakText(message.content, index)}
+                        title={speakingMessageIndex === index ? 'Stop reading' : 'Read aloud'}
+                      >
+                        {speakingMessageIndex === index ? (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                              <rect x="6" y="4" width="4" height="16" fill="currentColor"/>
+                              <rect x="14" y="4" width="4" height="16" fill="currentColor"/>
+                            </svg>
+                            Stop Reading
+                          </>
+                        ) : (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                              <path d="M3 9V15H7L12 20V4L7 9H3Z" fill="currentColor"/>
+                              <path d="M16.5 12C16.5 10.23 15.48 8.71 14 7.97V16.02C15.48 15.29 16.5 13.77 16.5 12Z" fill="currentColor"/>
+                              <path d="M14 3.23V5.29C16.89 6.15 19 8.83 19 12C19 15.17 16.89 17.85 14 18.71V20.77C18.01 19.86 21 16.28 21 12C21 7.72 18.01 4.14 14 3.23Z" fill="currentColor"/>
+                            </svg>
+                            Read Aloud
+                          </>
+                        )}
+                      </button>
                       <button 
                         className="action-btn"
                         onClick={() => handleDownload(message.content, message.companyName, 'pdf')}
@@ -517,6 +701,25 @@ function Chat() {
               disabled={isLoading}
             />
             <button
+              type="button"
+              className={`mic-btn ${isListening ? 'listening' : ''}`}
+              onClick={() => isListening ? stopListening() : startListening(false)}
+              disabled={isLoading}
+              title="Voice input"
+            >
+              {isListening ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="8" fill="currentColor" opacity="0.3"/>
+                  <circle cx="12" cy="12" r="4" fill="currentColor"/>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2C10.34 2 9 3.34 9 5V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V5C15 3.34 13.66 2 12 2Z" fill="currentColor"/>
+                  <path d="M19 12C19 15.53 16.39 18.44 13 18.93V22H11V18.93C7.61 18.44 5 15.53 5 12H7C7 14.76 9.24 17 12 17C14.76 17 17 14.76 17 12H19Z" fill="currentColor"/>
+                </svg>
+              )}
+            </button>
+            <button
               type="submit"
               className="send-btn"
               disabled={!input.trim() || isLoading}
@@ -557,9 +760,35 @@ function Chat() {
               </button>
             </div>
             <div className="modal-body">
-              <p className="edit-instruction-label">
-                Tell me what changes you'd like to make to the report:
-              </p>
+              <div className="modal-input-header">
+                <p className="edit-instruction-label">
+                  Tell me what changes you'd like to make to the report:
+                </p>
+                <button
+                  type="button"
+                  className={`modal-mic-btn ${isListeningModal ? 'listening' : ''}`}
+                  onClick={() => isListeningModal ? stopListening() : startListening(true)}
+                  title="Voice input"
+                >
+                  {isListeningModal ? (
+                    <>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="8" fill="currentColor" opacity="0.3"/>
+                        <circle cx="12" cy="12" r="4" fill="currentColor"/>
+                      </svg>
+                      <span>Listening...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2C10.34 2 9 3.34 9 5V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V5C15 3.34 13.66 2 12 2Z" fill="currentColor"/>
+                        <path d="M19 12C19 15.53 16.39 18.44 13 18.93V22H11V18.93C7.61 18.44 5 15.53 5 12H7C7 14.76 9.24 17 12 17C14.76 17 17 14.76 17 12H19Z" fill="currentColor"/>
+                      </svg>
+                      <span>Use Voice</span>
+                    </>
+                  )}
+                </button>
+              </div>
               <textarea
                 value={editInstructions}
                 onChange={(e) => setEditInstructions(e.target.value)}
