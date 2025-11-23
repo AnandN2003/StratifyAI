@@ -1,16 +1,25 @@
 services:
-  stratify-ai:
-    build: .
-    container_name: stratify-research-agent
+  frontend:
+    build: ./frontend
+    container_name: stratify-frontend
     ports:
-      - "8501:8501"
+      - "3000:3000"
+    depends_on:
+      - backend
+  
+  backend:
+    build: .
+    container_name: stratify-backend
+    ports:
+      - "5000:5000"
     volumes:
       - ./src:/app/src
-      - ./app:/app/app
+      - ./backend_api.py:/app/backend_api.py
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - FLASK_APP=backend_api.py
     stdin_open: true
     tty: true
-    command: streamlit run app/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+    command: python backend_api.py

@@ -340,7 +340,24 @@ def writer_node(state: AgentState) -> AgentState:
             # Remove any other code block markers
             report = report.replace("```", "").strip()
         
+        # Append research sources section
+        report += "\n\n---\n\n"
+        report += "## 📚 Research Sources\n\n"
+        report += "This report was compiled using the following sources:\n\n"
+        
+        # Add unique sources
+        seen_urls = set()
+        source_num = 1
+        for item in research_data:
+            url = item.get('url', '')
+            if url and url != 'human-input' and url not in seen_urls:
+                seen_urls.add(url)
+                title = item.get('title', 'Untitled')
+                report += f"{source_num}. [{title}]({url})\n"
+                source_num += 1
+        
         messages.append(f"  ✓ Account plan generated successfully ({len(report)} characters)")
+        messages.append(f"  ✓ Added {len(seen_urls)} research sources")
         
         return {**state, "messages": messages, "final_report": report}
         

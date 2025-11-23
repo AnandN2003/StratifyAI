@@ -13,3 +13,5 @@ build/
 .idea/
 *.log
 WORKFLOW.md
+node_modules/
+package-lock.json

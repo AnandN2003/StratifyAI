@@ -18,230 +18,336 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 import markdown2
 import re
 from datetime import datetime
+import uuid
 
 # ============================================================================
 # PAGE CONFIGURATION
 # ============================================================================
 
 st.set_page_config(
-    page_title="StratifyAI - AI-Powered Cold Outreach",
-    page_icon="🚀",
+    page_title="StratifyAI - AI Research Assistant",
+    page_icon="🧠",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # ============================================================================
-# CUSTOM CSS - ELEGANT BLACK/BLUE THEME WITH ANIMATED BACKGROUND
+# CUSTOM CSS - CHAT INTERFACE THEME (ChatGPT-style)
 # ============================================================================
 
 CUSTOM_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-/* Animated Background */
-@keyframes moveBackground {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+/* Global Styles */
+* {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* Main App Container */
+/* Main App Background */
 .stApp {
-    background: linear-gradient(
-        135deg,
-        #0a0e27 0%,
-        #141b3d 25%,
-        #1a2451 50%,
-        #141b3d 75%,
-        #0a0e27 100%
-    );
-    background-size: 400% 400%;
-    animation: moveBackground 20s ease infinite;
-    font-family: 'Inter', sans-serif;
+    background: #0d1117;
 }
 
-/* Radial Gradient Overlays for Depth */
-.stApp::before {
-    content: '';
-    position: fixed;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(
-        circle at 30% 50%,
-        rgba(76, 114, 255, 0.1) 0%,
-        transparent 50%
-    ),
-    radial-gradient(
-        circle at 70% 50%,
-        rgba(138, 43, 226, 0.08) 0%,
-        transparent 50%
-    );
-    pointer-events: none;
-    z-index: 0;
+/* Hide default Streamlit elements */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+.stDeployButton {display: none;}
+
+/* Sidebar Styling */
+[data-testid="stSidebar"] {
+    background: #1c1c1c;
+    border-right: 1px solid #2d2d2d;
 }
 
-/* Hero Title Styling */
-.hero-title {
-    font-size: 3.5rem;
-    font-weight: 700;
-    text-align: center;
-    background: linear-gradient(135deg, #ffffff 0%, #4C72FF 50%, #a78bfa 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin-bottom: 1rem;
-    line-height: 1.2;
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+    color: #e8e8e8;
 }
 
-.hero-subtitle {
-    font-size: 1.25rem;
-    text-align: center;
-    color: #94a3b8;
-    font-weight: 300;
-    margin-bottom: 2rem;
-    max-width: 800px;
-    margin-left: auto;
-    margin-right: auto;
+/* Sidebar Chat History */
+.chat-history-item {
+    background: #2d2d2d;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
 }
 
-/* Button Styling */
-.stButton > button {
-    background: linear-gradient(135deg, #4C72FF 0%, #6366f1 100%);
+.chat-history-item:hover {
+    background: #3d3d3d;
+    border-color: #4d4d4d;
+}
+
+.chat-history-item.active {
+    background: #3d3d3d;
+    border-color: #10a37f;
+}
+
+/* Main Chat Container */
+.main .block-container {
+    padding: 2rem 1rem;
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+/* Chat Message Bubbles */
+.chat-message {
+    display: flex;
+    margin-bottom: 1.5rem;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-message.user {
+    justify-content: flex-end;
+}
+
+.chat-message.assistant {
+    justify-content: flex-start;
+}
+
+.message-content {
+    max-width: 75%;
+    padding: 14px 18px;
+    border-radius: 18px;
+    line-height: 1.6;
+    word-wrap: break-word;
+}
+
+.message-content.user {
+    background: #10a37f;
     color: white;
-    border: none;
-    border-radius: 12px;
-    padding: 0.75rem 2rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 15px rgba(76, 114, 255, 0.3);
-    width: 100%;
+    border-bottom-right-radius: 4px;
 }
 
-.stButton > button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 25px rgba(76, 114, 255, 0.5);
-    background: linear-gradient(135deg, #5d82ff 0%, #7477f2 100%);
+.message-content.assistant {
+    background: #2d2d2d;
+    color: #e8e8e8;
+    border-bottom-left-radius: 4px;
 }
 
-/* Input Fields */
+.message-content.system {
+    background: #3d3d3d;
+    color: #a8a8a8;
+    font-style: italic;
+    max-width: 100%;
+    text-align: center;
+    border-radius: 8px;
+}
+
+/* Typing Indicator */
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    padding: 14px 18px;
+    background: #2d2d2d;
+    border-radius: 18px;
+    border-bottom-left-radius: 4px;
+    max-width: 75%;
+}
+
+.typing-dot {
+    width: 8px;
+    height: 8px;
+    margin: 0 3px;
+    background: #10a37f;
+    border-radius: 50%;
+    animation: typing 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.7; }
+    30% { transform: translateY(-10px); opacity: 1; }
+}
+
+/* Input Area */
 .stTextInput > div > div > input {
-    background-color: rgba(15, 23, 42, 0.6);
-    border: 2px solid rgba(76, 114, 255, 0.3);
-    border-radius: 10px;
-    color: #e2e8f0;
-    padding: 0.75rem 1rem;
+    background: #2d2d2d;
+    border: 1px solid #3d3d3d;
+    border-radius: 12px;
+    color: #e8e8e8;
+    padding: 14px 18px;
     font-size: 1rem;
-    transition: all 0.3s ease;
 }
 
 .stTextInput > div > div > input:focus {
-    border-color: #4C72FF;
-    box-shadow: 0 0 0 3px rgba(76, 114, 255, 0.2);
+    border-color: #10a37f;
+    box-shadow: 0 0 0 2px rgba(16, 163, 127, 0.2);
 }
 
-/* Status Box */
-.status-box {
-    background: rgba(15, 23, 42, 0.7);
-    border: 2px solid rgba(76, 114, 255, 0.3);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin: 1rem 0;
-    backdrop-filter: blur(10px);
-}
-
-/* Conflict Alert Box */
-.conflict-box {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.05) 100%);
-    border: 2px solid rgba(239, 68, 68, 0.5);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin: 1rem 0;
-    backdrop-filter: blur(10px);
-}
-
-/* Report Box */
-.report-box {
-    background: rgba(15, 23, 42, 0.8);
-    border: 2px solid rgba(76, 114, 255, 0.4);
-    border-radius: 12px;
-    padding: 2rem;
-    margin: 1rem 0;
-    backdrop-filter: blur(10px);
-    color: #e2e8f0;
-}
-
-/* Expander Styling */
-.streamlit-expanderHeader {
-    background-color: rgba(15, 23, 42, 0.6);
-    border-radius: 10px;
-    color: #e2e8f0;
+/* Buttons */
+.stButton > button {
+    background: #10a37f;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 24px;
     font-weight: 600;
+    transition: all 0.2s ease;
 }
 
-/* Markdown Text Color */
-.stMarkdown, p, h1, h2, h3, h4, h5, h6, li {
-    color: #e2e8f0 !important;
+.stButton > button:hover {
+    background: #0d8c6a;
+    transform: translateY(-1px);
 }
 
-/* Table Styling */
-table {
-    color: #e2e8f0 !important;
-    background-color: rgba(15, 23, 42, 0.5);
+/* Conflict Resolution Options */
+.conflict-option {
+    background: #2d2d2d;
+    border: 2px solid #3d3d3d;
+    border-radius: 12px;
+    padding: 16px;
+    margin: 8px 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
 }
 
-thead th {
-    background-color: rgba(76, 114, 255, 0.2);
-    color: #ffffff !important;
+.conflict-option:hover {
+    border-color: #10a37f;
+    background: #3d3d3d;
 }
 
-tbody tr:nth-child(even) {
-    background-color: rgba(15, 23, 42, 0.3);
+/* Markdown in Chat */
+.message-content h1, .message-content h2, .message-content h3 {
+    color: #e8e8e8;
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
 }
 
-/* Spinner */
-.stSpinner > div {
-    border-top-color: #4C72FF !important;
+.message-content p {
+    margin: 0.5em 0;
+    color: #e8e8e8;
 }
 
-/* Success/Error Messages */
-.stSuccess {
-    background-color: rgba(34, 197, 94, 0.1);
-    border-left: 4px solid #22c55e;
-    color: #86efac !important;
+.message-content code {
+    background: #1c1c1c;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #10a37f;
 }
 
-.stError {
-    background-color: rgba(239, 68, 68, 0.1);
-    border-left: 4px solid #ef4444;
-    color: #fca5a5 !important;
+.message-content pre {
+    background: #1c1c1c;
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
 }
 
-.stInfo {
-    background-color: rgba(76, 114, 255, 0.1);
-    border-left: 4px solid #4C72FF;
-    color: #93c5fd !important;
+/* Report Download Section */
+.download-section {
+    background: #2d2d2d;
+    border: 1px solid #3d3d3d;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 16px 0;
 }
 
-/* Columns */
-.element-container {
-    color: #e2e8f0;
+/* Welcome Screen */
+.welcome-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    text-align: center;
 }
 
-/* Code Blocks */
-code {
-    background-color: rgba(15, 23, 42, 0.8);
-    color: #93c5fd;
-    padding: 0.2rem 0.4rem;
+.welcome-title {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #e8e8e8;
+    margin-bottom: 1rem;
+}
+
+.welcome-subtitle {
+    font-size: 1.1rem;
+    color: #a8a8a8;
+    margin-bottom: 2rem;
+    max-width: 600px;
+}
+
+.example-prompts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+    margin-top: 2rem;
+    width: 100%;
+    max-width: 800px;
+}
+
+.example-prompt {
+    background: #2d2d2d;
+    border: 1px solid #3d3d3d;
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+
+.example-prompt:hover {
+    background: #3d3d3d;
+    border-color: #10a37f;
+    transform: translateY(-2px);
+}
+
+.example-prompt-title {
+    font-weight: 600;
+    color: #e8e8e8;
+    margin-bottom: 6px;
+}
+
+.example-prompt-desc {
+    font-size: 0.9rem;
+    color: #a8a8a8;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1c1c1c;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #3d3d3d;
     border-radius: 4px;
 }
 
-pre {
-    background-color: rgba(15, 23, 42, 0.9);
-    border-radius: 8px;
-    padding: 1rem;
+::-webkit-scrollbar-thumb:hover {
+    background: #4d4d4d;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .main .block-container {
+        padding: 1rem 0.5rem;
+    }
+    
+    .message-content {
+        max-width: 90%;
+    }
+    
+    .welcome-title {
+        font-size: 2rem;
+    }
+    
+    .example-prompts {
+        grid-template-columns: 1fr;
+    }
 }
 </style>
 """
@@ -255,7 +361,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 def generate_pdf_from_markdown(markdown_text: str, company_name: str) -> BytesIO:
     """
-    Generate a PDF from markdown text.
+    Generate a professional PDF from markdown text with dark theme styling.
     
     Args:
         markdown_text: The markdown content to convert
@@ -265,30 +371,49 @@ def generate_pdf_from_markdown(markdown_text: str, company_name: str) -> BytesIO
         BytesIO object containing the PDF
     """
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.75*inch, bottomMargin=0.75*inch)
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        topMargin=0.75*inch, 
+        bottomMargin=0.75*inch,
+        leftMargin=0.75*inch,
+        rightMargin=0.75*inch
+    )
     
     # Styles
     styles = getSampleStyleSheet()
     
-    # Custom styles
+    # Custom styles matching the dark theme
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=24,
+        fontSize=26,
         textColor=colors.HexColor('#1a1a1a'),
-        spaceAfter=30,
+        spaceAfter=10,
         alignment=TA_CENTER,
         fontName='Helvetica-Bold'
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'Subtitle',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=colors.HexColor('#666666'),
+        spaceAfter=30,
+        alignment=TA_CENTER,
+        fontName='Helvetica'
     )
     
     heading1_style = ParagraphStyle(
         'CustomHeading1',
         parent=styles['Heading1'],
         fontSize=18,
-        textColor=colors.HexColor('#2563eb'),
+        textColor=colors.HexColor('#1a2451'),
         spaceAfter=12,
         spaceBefore=20,
-        fontName='Helvetica-Bold'
+        fontName='Helvetica-Bold',
+        borderPadding=10,
+        leftIndent=0
     )
     
     heading2_style = ParagraphStyle(
@@ -304,35 +429,45 @@ def generate_pdf_from_markdown(markdown_text: str, company_name: str) -> BytesIO
     body_style = ParagraphStyle(
         'CustomBody',
         parent=styles['BodyText'],
-        fontSize=11,
-        textColor=colors.HexColor('#374151'),
-        spaceAfter=12,
-        alignment=TA_JUSTIFY,
-        leading=16
+        fontSize=10,
+        textColor=colors.HexColor('#2d3748'),
+        spaceAfter=10,
+        alignment=TA_LEFT,
+        leading=14
     )
     
     bullet_style = ParagraphStyle(
         'CustomBullet',
         parent=styles['BodyText'],
-        fontSize=11,
+        fontSize=10,
         textColor=colors.HexColor('#374151'),
         spaceAfter=6,
+        leftIndent=30,
+        bulletIndent=15,
+        leading=14
+    )
+    
+    source_link_style = ParagraphStyle(
+        'SourceLink',
+        parent=styles['BodyText'],
+        fontSize=9,
+        textColor=colors.HexColor('#4C72FF'),
+        spaceAfter=8,
         leftIndent=20,
-        bulletIndent=10
+        leading=12
     )
     
     # Story (content container)
     story = []
     
-    # Add header
-    story.append(Paragraph(f"Account Plan Report", title_style))
-    story.append(Paragraph(f"Generated on {datetime.now().strftime('%B %d, %Y')}", styles['Normal']))
-    story.append(Spacer(1, 0.3*inch))
+    # Add header with company branding
+    story.append(Paragraph("Account Plan Report", title_style))
+    story.append(Paragraph(f"{company_name} | Generated on {datetime.now().strftime('%B %d, %Y')}", subtitle_style))
+    story.append(Spacer(1, 0.2*inch))
     
     def clean_text_for_pdf(text):
         """Clean and properly format text for PDF, handling bold markers."""
         # Replace **text** with proper <b>text</b> tags
-        # Handle cases where ** might be unmatched
         parts = text.split('**')
         result = []
         for i, part in enumerate(parts):
@@ -343,11 +478,12 @@ def generate_pdf_from_markdown(markdown_text: str, company_name: str) -> BytesIO
         
         final_text = ''.join(result)
         
-        # Escape any remaining problematic characters
+        # Escape problematic characters but preserve our HTML tags
         final_text = final_text.replace('&', '&amp;')
         final_text = final_text.replace('<', '&lt;').replace('>', '&gt;')
-        # Re-enable our bold tags
         final_text = final_text.replace('&lt;b&gt;', '<b>').replace('&lt;/b&gt;', '</b>')
+        final_text = final_text.replace('&lt;br&gt;', '<br/>')
+        final_text = final_text.replace('&lt;br/&gt;', '<br/>')
         
         return final_text
     
@@ -355,67 +491,105 @@ def generate_pdf_from_markdown(markdown_text: str, company_name: str) -> BytesIO
     lines = markdown_text.split('\n')
     
     i = 0
+    in_table = False
+    
     while i < len(lines):
         line = lines[i].strip()
         
         if not line:
-            story.append(Spacer(1, 0.1*inch))
+            if not in_table:
+                story.append(Spacer(1, 0.1*inch))
             i += 1
             continue
         
         # Handle headers
-        if line.startswith('# '):
+        if line.startswith('# ') and not line.startswith('## '):
             text = line[2:].strip()
+            # Add separator line before major sections
+            story.append(Spacer(1, 0.15*inch))
             story.append(Paragraph(text, heading1_style))
+            
         elif line.startswith('## '):
             text = line[3:].strip()
             story.append(Paragraph(text, heading2_style))
+            
         elif line.startswith('### '):
             text = line[4:].strip()
             story.append(Paragraph(text, heading2_style))
         
+        # Handle horizontal rules
+        elif line.startswith('---'):
+            story.append(Spacer(1, 0.2*inch))
+            
         # Handle bullet points
         elif line.startswith('* ') or line.startswith('- '):
             text = line[2:].strip()
             clean_text = clean_text_for_pdf(text)
             story.append(Paragraph(f"• {clean_text}", bullet_style))
         
-        # Handle numbered lists
+        # Handle numbered lists (including source links)
         elif re.match(r'^\d+\.\s', line):
             text = re.sub(r'^\d+\.\s', '', line).strip()
-            clean_text = clean_text_for_pdf(text)
-            story.append(Paragraph(clean_text, bullet_style))
+            
+            # Check if it's a markdown link [text](url)
+            link_match = re.match(r'\[(.*?)\]\((.*?)\)', text)
+            if link_match:
+                link_text = link_match.group(1)
+                link_url = link_match.group(2)
+                formatted_text = f'<b>{link_text}</b><br/><font size="8" color="#666666">{link_url}</font>'
+                story.append(Paragraph(formatted_text, source_link_style))
+            else:
+                clean_text = clean_text_for_pdf(text)
+                story.append(Paragraph(clean_text, bullet_style))
         
-        # Handle tables (simple markdown tables)
+        # Handle tables
         elif '|' in line and not line.startswith('|:'):
-            # Collect table rows
+            in_table = True
             table_data = []
+            
             while i < len(lines) and '|' in lines[i]:
-                row = [cell.strip() for cell in lines[i].split('|') if cell.strip()]
-                if row and not lines[i].startswith('|:'):  # Skip separator rows
-                    table_data.append(row)
+                row_text = [cell.strip() for cell in lines[i].split('|') if cell.strip()]
+                if row_text and not lines[i].startswith('|:'):
+                    # Wrap each cell in a Paragraph for proper text wrapping
+                    row_paragraphs = []
+                    for idx, cell in enumerate(row_text):
+                        if idx == 0:  # First column (Category) - use bold
+                            row_paragraphs.append(Paragraph(f"<b>{cell}</b>", body_style))
+                        else:  # Second column (Summary) - regular text with wrapping
+                            clean_cell = clean_text_for_pdf(cell)
+                            row_paragraphs.append(Paragraph(clean_cell, body_style))
+                    table_data.append(row_paragraphs)
                 i += 1
             
-            if table_data:
-                # Create table
-                table = Table(table_data, hAlign='LEFT')
+            if table_data and len(table_data) > 1:  # Need at least header + 1 row
+                # Create table with proper column widths for letter size (8.5" wide)
+                # Account for margins: 8.5" - 1.5" (left+right margins) = 7" usable width
+                col_widths = [1.5*inch, 5*inch]  # Category: 1.5", Summary: 5"
+                
+                table = Table(table_data, hAlign='LEFT', colWidths=col_widths)
                 table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4C72FF')),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a2451')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('FONTSIZE', (0, 0), (-1, 0), 11),
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('TOPPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8f9fa')),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e0')),
                     ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
                     ('FONTSIZE', (0, 1), (-1, -1), 10),
-                    ('TOPPADDING', (0, 1), (-1, -1), 8),
-                    ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+                    ('TOPPADDING', (0, 1), (-1, -1), 10),
+                    ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 10),
                 ]))
                 story.append(table)
                 story.append(Spacer(1, 0.2*inch))
-            continue  # Skip the increment since we already processed multiple lines
+            
+            in_table = False
+            continue
         
         # Regular paragraph
         else:
@@ -435,25 +609,21 @@ def generate_pdf_from_markdown(markdown_text: str, company_name: str) -> BytesIO
 # ============================================================================
 
 def initialize_session_state():
-    """Initialize all session state variables."""
-    if 'agent_state' not in st.session_state:
-        st.session_state.agent_state = None
-    if 'is_conflict' not in st.session_state:
-        st.session_state.is_conflict = False
-    if 'final_report' not in st.session_state:
-        st.session_state.final_report = None
-    if 'report_generated' not in st.session_state:
-        st.session_state.report_generated = False
-    if 'execution_log' not in st.session_state:
-        st.session_state.execution_log = []
-    if 'research_count' not in st.session_state:
-        st.session_state.research_count = 0
+    """Initialize all session state variables for chat interface."""
+    if 'chat_sessions' not in st.session_state:
+        st.session_state.chat_sessions = {}  # {session_id: {...}}
+    if 'current_session_id' not in st.session_state:
+        st.session_state.current_session_id = None
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []  # Current chat messages
+    if 'awaiting_conflict_resolution' not in st.session_state:
+        st.session_state.awaiting_conflict_resolution = False
     if 'conflict_question' not in st.session_state:
         st.session_state.conflict_question = ""
+    if 'agent_state' not in st.session_state:
+        st.session_state.agent_state = None
     if 'processing' not in st.session_state:
         st.session_state.processing = False
-    if 'config' not in st.session_state:
-        st.session_state.config = None
 
 initialize_session_state()
 

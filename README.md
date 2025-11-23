@@ -1,4 +1,75 @@
-# StratifyAI - Autonomous Company Research Agent
+# StratifyAI - AI-Powered Company Research Assistant
+
+StratifyAI is an intelligent company research assistant that generates comprehensive account plans in minutes using AI-powered analysis.
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker and Docker Compose installed
+- API keys for Gemini and Tavily (in `.env` file)
+
+### Running the Application
+
+1. **Build and start the application:**
+   ```bash
+   docker-compose up --build
+   ```
+
+2. **Access the application:**
+   - Open your browser and navigate to: `http://localhost:8501`
+   - You'll see the landing page
+   - Click "Get Started" to access the chat interface
+
+3. **Stop the application:**
+   ```bash
+   docker-compose down
+   ```
+
+## 📁 Project Structure
+
+```
+StratifyAI/
+├── app/
+│   ├── landing.py          # Landing page (main entry point)
+│   ├── pages/
+│   │   └── chat.py         # Chat interface for research
+│   ├── streamlit_app.py    # Original research interface
+│   └── streamlit_chat.py   # Alternative chat interface
+├── src/
+│   ├── graph.py            # LangGraph agent logic
+│   ├── entrypoint.py       # CLI entry point
+│   └── __init__.py
+├── docker-compose.yml      # Docker Compose configuration
+├── Dockerfile              # Docker build configuration
+├── requirements.txt        # Python dependencies
+└── .env                    # Environment variables (API keys)
+```
+
+## Features
+
+- **AI-Powered Research**: Leverages advanced AI to analyze companies instantly
+- **Comprehensive Account Plans**: Generates detailed plans with key insights
+- **Lightning Fast**: Get results in minutes instead of hours
+- **Smart Targeting**: Identify decision-makers and organizational structure
+- **Strategic Insights**: Uncover growth initiatives and strategic priorities
+- **Conversational Interface**: Natural chat-based interaction
+- **Export Options**: Download reports as Markdown or PDF
+
+## 🔧 Configuration
+
+The application is configured through environment variables in the `.env` file:
+- `GEMINI_API_KEY`: Your Google Gemini API key
+- `TAVILY_API_KEY`: Your Tavily search API key
+
+## 📝 Usage
+
+1. Start on the landing page
+2. Click "Get Started" to access the chat
+3. Enter a company name to research
+4. Review the AI-generated account plan
+5. Download the report in your preferred format (MD or PDF)
+
+## StratifyAI - Autonomous Company Research Agent
 
 [![Python](https://img.shields.io/badge/python-3.9-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-enabled-brightgreen.svg)](https://www.docker.com/)
