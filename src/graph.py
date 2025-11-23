@@ -1,5 +1,6 @@
 from typing import TypedDict, List, Annotated, Literal
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from tavily import TavilyClient
@@ -74,13 +75,19 @@ class AgentState(TypedDict):
         company_name: Target company for research
         research_data: Accumulated research findings
         conflicting_info: Flag indicating if contradictory information was found
+        clarification_question: Question to ask human when conflict detected
+        conflicting_data: Details about the conflicting information
         final_report: Generated account plan report
+        human_resolution: Human's decision when conflict occurs
     """
     messages: List[str]  # Changed from Annotated to prevent accumulation
     company_name: str
     research_data: List[dict]  # Changed from Annotated to prevent accumulation
     conflicting_info: bool
+    clarification_question: str
+    conflicting_data: str
     final_report: str
+    human_resolution: str
 
 
 def research_node(state: AgentState) -> AgentState:
@@ -217,7 +224,13 @@ def reviewer_node(state: AgentState) -> AgentState:
             else:
                 messages.append(f"\n✅ No conflicts detected - data appears consistent")
             
-            return {**state, "messages": messages, "conflicting_info": conflict_detected}
+            return {
+                **state, 
+                "messages": messages, 
+                "conflicting_info": conflict_detected,
+                "clarification_question": clarification_question if conflict_detected else "",
+                "conflicting_data": research_summary[:500] if conflict_detected else ""
+            }
                 
         except json.JSONDecodeError as e:
             messages.append(f"  ✗ Error parsing Gemini response: {str(e)}")
@@ -255,67 +268,21 @@ def route_decision(state: AgentState) -> Literal["needs_human_review", "continue
 
 def human_node(state: AgentState) -> AgentState:
     """
-    Human-in-the-Loop Node: Pauses execution for human review when conflicts detected.
+    Human-in-the-Loop Node: Interrupts execution for Streamlit UI to handle.
+    This node just marks that human review is needed - actual resolution happens in Streamlit.
     
     Args:
         state: Current agent state
         
     Returns:
-        State with human feedback incorporated
+        State marked for human review (execution will pause here)
     """
     messages = state.get("messages", []).copy()
-    research_data = state.get("research_data", []).copy()
+    messages.append("\n👤 HUMAN REVIEW REQUIRED - Execution paused for Streamlit UI")
     
-    messages.append("\n👤 HUMAN REVIEW REQUIRED")
-    messages.append("=" * 60)
-    
-    # Extract the conflict question
-    conflict_question = "No specific question available."
-    for msg in reversed(messages):
-        if "Question:" in msg:
-            conflict_question = msg.split("Question:", 1)[1].strip()
-            break
-    
-    print("\n" + "=" * 60)
-    print("⚠️  CONFLICT DETECTED - HUMAN REVIEW REQUIRED")
-    print("=" * 60)
-    print(f"\n{conflict_question}\n")
-    print("Options:")
-    print("  1. Proceed anyway (ignore conflict)")
-    print("  2. Stop and review manually")
-    print("  3. Add clarification note")
-    print()
-    
-    conflicting_info = state.get("conflicting_info", True)
-    final_report = state.get("final_report", "")
-    
-    while True:
-        choice = input("Your decision (1/2/3): ").strip()
-        
-        if choice == "1":
-            messages.append("  → Human decision: Proceed despite conflict")
-            conflicting_info = False  # Override conflict flag
-            break
-        elif choice == "2":
-            messages.append("  → Human decision: Stop for manual review")
-            final_report = f"# Account Plan: {state['company_name']}\n\n**PAUSED FOR MANUAL REVIEW**\n\nConflict: {conflict_question}"
-            break
-        elif choice == "3":
-            note = input("Enter your clarification note: ").strip()
-            messages.append(f"  → Human clarification: {note}")
-            research_data.append({
-                "query": "Human Clarification",
-                "title": "Manual Review Note",
-                "url": "human-input",
-                "content": note,
-                "score": 1.0
-            })
-            conflicting_info = False  # Resolved by human input
-            break
-        else:
-            print("Invalid choice. Please enter 1, 2, or 3.")
-    
-    return {**state, "messages": messages, "research_data": research_data, "conflicting_info": conflicting_info, "final_report": final_report}
+    # Return state unchanged - the interrupt will pause execution here
+    # Streamlit will resume by calling continue_agent() with updated state
+    return {**state, "messages": messages}
 
 
 # ============================================================================
@@ -397,8 +364,10 @@ def route_after_human(state: AgentState) -> Literal["writer", "end"]:
     Returns:
         "writer" if human approved continuation, "end" if stopped
     """
-    # Check if human chose to stop (option 2)
-    if state.get("final_report", "").startswith("# Account Plan:") and "PAUSED FOR MANUAL REVIEW" in state.get("final_report", ""):
+    human_resolution = state.get("human_resolution", "")
+    
+    # Check if human chose to stop
+    if human_resolution == "stop":
         return "end"
     else:
         return "writer"
@@ -408,14 +377,14 @@ def route_after_human(state: AgentState) -> Literal["writer", "end"]:
 # GRAPH CREATION
 # ============================================================================
 
-def create_research_graph() -> StateGraph:
+def create_research_graph():
     """
-    Creates the research agent graph (Phase 2: With Reviewer & Routing).
+    Creates the research agent graph with checkpointer for interrupts.
     
     Flow: Researcher → Reviewer → [Human Review OR Writer] → END
     
     Returns:
-        Compiled StateGraph ready for execution
+        Compiled StateGraph with interrupt capability
     """
     workflow = StateGraph(AgentState)
     
@@ -454,7 +423,12 @@ def create_research_graph() -> StateGraph:
     # Writer always ends
     workflow.add_edge("writer", END)
     
-    return workflow.compile()
+    # Compile with checkpointer and interrupt before human_review
+    checkpointer = MemorySaver()
+    return workflow.compile(
+        checkpointer=checkpointer,
+        interrupt_before=["human_review"]
+    )
 
 
 # Initialize LLM (for future nodes)
