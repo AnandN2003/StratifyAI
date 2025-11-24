@@ -189,7 +189,7 @@ The **Writer Node** synthesizes validated research into:
 - 3 Sales Conversation Starters
 
 ---
-## 🚧 Roadmap
+## Roadmap
 
 - [ ] Streamlit Web UI
 - [ ] FastAPI REST backend
@@ -200,7 +200,7 @@ The **Writer Node** synthesizes validated research into:
 - [ ] Supervisor node for multi-agent orchestration
 
 ---
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **LangGraph** - State machine orchestration
 - **Google Gemini** - AI analysis and generation
