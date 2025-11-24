@@ -65,20 +65,38 @@ User Input → Researcher → Reviewer → [Human Review?] → Writer → Accoun
 
 ```
 StratifyAI/
-├── app/
-│   ├── landing.py          # Landing page (main entry point)
-│   ├── pages/
-│   │   └── chat.py         # Chat interface for research
-│   ├── streamlit_app.py    # Original research interface
-│   └── streamlit_chat.py   # Alternative chat interface
-├── src/
-│   ├── graph.py            # LangGraph agent logic
-│   ├── entrypoint.py       # CLI entry point
-│   └── __init__.py
-├── docker-compose.yml      # Docker Compose configuration
-├── Dockerfile              # Docker build configuration
-├── requirements.txt        # Python dependencies
-└── .env                    # Environment variables (API keys)
+├── app/                        # Streamlit application
+│   ├── landing.py              # Landing page (main entry point)
+│   ├── streamlit_app.py        # Original research interface
+│   ├── streamlit_chat.py       # Alternative chat interface
+│   ├── .streamlit/
+│   │   └── config.toml         # Streamlit configuration
+│   └── pages/
+│       └── chat.py             # Chat interface page
+├── frontend/                   # React frontend
+│   ├── src/
+│   │   ├── App.jsx             # Main App component
+│   │   ├── Chat.jsx            # Chat interface component
+│   │   ├── Landing.jsx         # Landing page component
+│   │   ├── main.jsx            # React entry point
+│   │   ├── App.css             # App styles
+│   │   ├── Chat.css            # Chat styles
+│   │   └── index.css           # Global styles
+│   ├── public/
+│   │   └── index.html          # HTML template
+│   ├── Dockerfile              # Frontend Docker configuration
+│   ├── nginx.conf              # Nginx configuration
+│   └── vite.config.js          # Vite bundler configuration
+├── src/                        # Core AI agent logic
+│   ├── graph.py                # LangGraph agent workflow
+│   ├── entrypoint.py           # CLI entry point
+│   └── __init__.py             # Package initialization
+├── backend_api.py              # Flask API backend
+├── docker-compose.yml          # Multi-container orchestration
+├── Dockerfile                  # Backend Docker configuration
+├── requirements.txt            # Python dependencies
+├── .gitignore                  # Git ignore rules
+└── README.md                   # Project documentation
 ```
 
 ## Features
