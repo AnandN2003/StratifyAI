@@ -1,4 +1,5 @@
 .env
+.env.example
 __pycache__/
 *.pyc
 *.pyo
@@ -13,5 +14,10 @@ build/
 .idea/
 *.log
 WORKFLOW.md
+VIDEO_SCRIPT.md
+REACT_SETUP.md
+start.bat
+start.sh
+package.json
 node_modules/
 package-lock.json
